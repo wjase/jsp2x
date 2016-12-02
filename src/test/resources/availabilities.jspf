@@ -1,0 +1,25 @@
+<%@ include file="taglibs.jspf"%>
+<%@ taglib prefix="av" tagdir="/WEB-INF/tags/edit/availabilities"%>
+
+<av:view submit="doDecoratedSubmit">
+
+    <av:javascript/>
+
+    <spring:bind path="form.decoratedSubmissionType">
+        <input id="${util:path2cssId(status.expression)}" type="hidden" name="${status.expression}"
+            value="${status.value}" />
+    </spring:bind>
+
+    <spring:message code="bundleAvailabilities.title" text="Associate this bundle with affiliates" scope="page" var="title"/>
+    <av:heading title="${title}" />
+
+    <av:pager retailPrice="true" wholesalePrice="true">
+        <av:pager-header />
+        <spring:message code="bundleAvailabilities.notAvailable" text="This bundle is not available to any affiliates." scope="page" var="notAvailable"/>
+        <av:pager-body blank="${notAvailable}">
+            <av:pager-row dateStyle="medium" />
+        </av:pager-body>
+        <av:pager-footer/>
+    </av:pager>
+
+</av:view>

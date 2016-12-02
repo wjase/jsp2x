@@ -1,0 +1,566 @@
+<html>
+    <head>
+        <title>Convert JSP pages to JSP documents (JSPX) with Jsp2x</title>
+    </head>
+
+    <body>
+        <p>Jsp2X is a command line utility for batch conversion of JSP <em>pages</em> to JSP
+        <em>documents</em>, i.e. JSPs in well-formed XML syntax (aka JSPX, see chapter 5 of the <a
+        href="http://jcp.org/aboutJava/communityprocess/final/jsr053/">JavaServer Pages<sup style=
+        "font-size:50%;">TM</sup> 1.2 Specification</a> and chapter 6 of the <a href=
+        "http://jcp.org/aboutJava/communityprocess/final/jsr152/">JavaServer Pages<sup style=
+        "font-size:50%;">TM</sup> 2.0 Specification</a>). It is written in Java and incorporates a
+        parser derived from a combined JSP+XHTML grammar using the ANTLR parser generator. It tries
+        very hard to create JSPX output that portable across engines. Jsp2X was designed to be used
+        in an iterative fashion in which it alerts the user of potential problems in the input.</p>
+        <!-- break -->
+
+        <h2 id="Introduction">Introduction</h2>
+
+        <p>Version 1.2 of the JSP standard introduces the notion of JSP <em>documents</em> which
+        are simply JSP files in well-formed XML syntax. Files in traditional JSP format, also known
+        as JSP <em>pages</em> contain a more or less free-form tag soup for which parsers are
+        difficult to write and which are therefore hard to digest in an automated manner. It took a
+        long time until the various JSP engine vendors agreed on what was valid JSP and what
+        wasn't. I usually prefer the Jetty servlet container for testing a web application during
+        development because it starts up quickly which reduces the time it takes to switch between
+        coding and testing an application. When I later deploy that application to Resin I am
+        bewildered to see Resin reject the JSPs that worked flawlessly in Jetty. An upgrade to
+        Resin 3.0.23 fixes many discrepancies but I still end up tweaking my JSP pages to make them
+        work in both containers.</p>
+
+        <p>JSP documents are well-formed XML. XML has a strict and precise (albeit verbose) syntax.
+        There are plenty of parsers and other tools available for XML. Making your JSP files
+        XML-compliant therefore opens a world of possibilities for further processing. For example,
+        I have haven't found a single JSP editor that correctly formats and highlights anything but
+        the simplest pages. With JSP documents these problem have a trivial solution: use your
+        favorite XML editor.</p>
+
+        <p>Another annoying trait of JSP pages is that the JSP engine preserves insignificant
+        whitespace. A JSP parser only parses what looks like a JSP tag or a directive even if the
+        text in between is well-formed XML. For that reason it can't detect and remove whitespace
+        that would be considered insignificant by XML or HTML standards. This unnecessarily
+        increases the size of the emitted HTML. The more JSP code is factored out into tag files or
+        included JSP fragments, the more insignificant whitespace generated and sent to the
+        browser. In JSP documents, on the other hand, it is very easy to detect and drop
+        insignificant whitespace. In fact, if the JSP engine uses an XML parser to read the input,
+        the parser will take care of whitespace on behalf of the engine. To give you a rough idea
+        about the potential savings: after I converted all 70+ JSP pages and tag files of a
+        well-factored 100k SLOC web application to JSP documents, the average size of the HTML
+        output decreased by 50% to 75%!</p>
+
+        <p>Taking into account that the template text in most JSP pages is in fact XHTML or HTML
+        the JSP committee realized that it isn't a very long road from a JSP page to a well-formed
+        XML document. They only had to get rid of the leniency in the JSP parser and come up with
+        alternatives for crazy constructs like <code>&lt;a href="&lt;c:url &hellip;&gt;"&gt;</code>
+        . This thought process led to the definition of JSP documents in the JSP standard at time
+        when millions of JSP pages had already been written an deployed. This is where Jsp2X comes
+        in. It is a tool that assists in the conversion of JSP pages to JSP documents, a process
+        that is generally straight-forward but tends to be tedious and has the potential to
+        introduce subtle errors when executed by hand.</p>
+
+        <p>To understand what JspX does you need to keep in mind that unlike a JSP engine, Jsp2X
+        parses both the JSP tags and the template text in between those tags. In that respect Jsp2X
+        incorporates a more complex parser than what you'd find in a typical JSP engine (luckily, I
+        had a very powerful and yet easy-to-use tool at hand: ANTLR, a robust LL(*) parser
+        generator). More importantly, Jsp2X can successfully parse the template text in your JSP
+        pages only if it is reasonably correct XHTML. Jsp2X doesn't expect fully well-formed XML
+        template text. It requires that all tags are nested properly and that empty tags are closed
+        correctly. There is no need for a single root element - Jsp2X will create one on-the-fly if
+        necessary.</p>
+
+        <h2 id="Download">Where can I get it?</h2>
+
+        <p>The latest binary and source distributions be downloaded from <a href=
+        "http://diaryproducts.net/about/programming_languages/java/convert_jsp_pages_to_jsp_documents_jspx_with_jsp2x#the_end">
+        this page</a>. To compile the sources you need <a href="http://maven.apache.org/">Maven</a>
+        version 2.0.7 and a JDK 1.6.0_02. Older Maven 2.0 releases &gt;= 2.0.4 may work as well and
+        a recent 1.5 JDK should be fine, too. Jsp2X is released under the <a href=
+        "http://www.gnu.org/licenses/lgpl.html">LGPL</a>.</p>
+
+        <p>The usage of the binary distribution is described in section <a href=
+        "#Usage">Usage</a>.</p>
+
+		<p>The source code repository is hosted at <a href="http://code.google.com/p/jsp2x/">Google Code</a>.
+
+        <h2 id="Transformations">What exactly does it do?</h2>
+
+        <p>A conversion of a single JSP page requires a number of different transformations. The
+        following is a hopefully complete list:</p>
+
+        <ul>
+            <li>Jsp2X writes the converted input to an output file whose name is derived from the
+            input file. The extension of the output file name is mapped according to what the JSP
+            standard lists as standard extensions for JSP pages/documents, tag files and fragments
+            (also see <a href="#Usage">Usage</a>).</li>
+
+            <li>Jsp2X adds four very short utility tag files to the converted project. They have
+            the <code>jspx:</code> prefix and contain functionality that would otherwise clutter
+            the converted JSP document.</li>
+
+            <li>Jsp2X wraps the JSP page in a &lt;jsp:root&gt; tag.</li>
+
+            <li>Jsp2X wraps JSP fragments into a &lt;jspx:fragment&gt; tag. &lt;jsp:root&gt; tags
+            in fragments are disallowed so I had to come up with another tag that is transparent
+            with respect to the generated output and that can be used to collect the potentially
+            many top-level elements of a fragment underneath a single top-level element (a
+            requirement of XML well-formedness).</li>
+
+            <li>Jsp2X converts all taglib declarations to name space references on the new root
+            element (&lt;jsp:root&gt; or &lt;jsp:fragment&gt;). Unused taglibs are omitted. Jsp2X
+            even detects taglibs that are declared in a fragment that is included by the JSP page
+            to be converted. JSP page authors often move their taglib declarations to a separate
+            file that is then included at the top of every JSP page.</li>
+
+            <li>Jsp2X escapes special XML characters in the input. Keep in mind that an JSP
+            document is parsed twice, once by the JSP engine's XML parser and once on the client
+            side by the browser's HTML/XHTML parser. If you wanted to display a literal
+            <code>&lt;</code> on a page, it was sufficient to put the HTML entity
+            <code>&amp;lt;</code> into the JSP page because the entity had no special meaning to
+            the JSP parser. A JSP document would have to read <code>&amp;amp;lt;</code> to get the
+            desired effect. The JSP parser will substitute <code>&amp;amp;</code> with
+            <code>&amp;</code> such that the browser gets the intended <code>&amp;lt</code> ; and
+            renders that as <code>&lt;</code> . Jsp2X does the necessary escaping for you.</li>
+
+            <li>Jsp2X wraps template text in <code>&lt;jsp:text&gt;</code> tags, excluding
+            insignificant whitespace.</li>
+
+            <li>Jsp2X escapes HTML comments and converts JSP comments to XML comments with the
+            intended effect that HTML comments will end up in the output whereas JSP comments do
+            not.</li>
+
+            <li>Jsp2X wraps scriptlets and expressions in <code>&lt;jsp:scriptlet&gt;</code> and
+            <code>&lt;jsp:expression&gt;</code> tags respectively.</li>
+
+            <li>Jsp2X inserts escaped HTML comments into the body of elements with empty bodies to
+            prevent them from being collapsed into empty element:
+            <code>&lt;td&gt;&lt;/td&gt;</code> becomes
+            <code>&lt;td&gt;&lt;!----&amp;gt&lt;/td&gt;</code> . This is definitely noisy but I
+            found no other way to prevent the JSP engine's XML parser from collapsing empty element
+            bodies. One of the goals for Jsp2X was to preserve the intent of a JSP page as much as
+            possible. Luckily, a typical HTML page doesn't contain that many empty elements so the
+            added syntactic noise will be minimal.</li>
+
+            <li>
+                Jsp2X tries to detect and convert dynamic attribute constructs. The detection of
+                these constructs is not bullet-proof because Jsp2X does not have a full-blown EL
+                expression parser. Instead it uses regexes to detect the most common cases. The
+                table below lists the supported cases (with additional whitespace and indention for
+                clarity). 
+
+                <table cellpadding="10">
+                    <tr>
+                        <th>JSP page</th>
+
+                        <th>JSP document</th>
+                    </tr>
+
+                    <tbody>
+                        <tr>
+                            <td>
+<pre>
+&lt;foo x="&lt;bar &hellip;&gt;"&gt;
+    &hellip;
+&lt;/foo&gt;
+</pre>
+                            </td>
+
+                            <td>
+<pre>
+&lt;jspx:element name="foo"&gt;
+    &lt;jspx:attribute name="x"/&gt;&lt;bar&hellip;&gt;&lt;/jspx:attribute&gt;
+    &lt;jspx:body&gt;&hellip;&lt;jspx:body&gt;
+&lt;/jspx:element&gt;
+</pre>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td>
+<pre>
+&lt;foo &lt;c:if test="&hellip;"&gt;x="&hellip;"&lt;c:if&gt;&gt;
+    &hellip;
+&lt;/foo&gt;
+</pre>
+                            </td>
+
+                            <td>
+<pre>
+&lt;jspx:element name="foo"&gt;
+    &lt;c:if test="&hellip;"&gt;
+        &lt;jspx:attribute name="x"/&gt;&hellip;&lt;/jspx:attribute&gt;
+    &lt;c:if&gt;
+    &lt;jspx:body&gt;&hellip;&lt;jspx:body&gt;
+&lt;/jspx:element&gt;
+</pre>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td>
+<pre>
+&lt;foo ${condition : 'x="&hellip;"' ? ''}&gt;
+    &hellip;
+&lt;/foo&gt;
+</pre>
+                            </td>
+
+                            <td>
+<pre>
+&lt;jspx:element name="foo"&gt;
+    &lt;c:if test="${condition}"&gt;
+        &lt;jspx:attribute name="x"/&gt;&hellip;&lt;/jspx:attribute&gt;
+    &lt;c:if&gt;
+    &lt;jspx:body&gt;&hellip;&lt;jspx:body&gt;
+&lt;/jspx:element&gt;
+</pre>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td>
+<pre>
+&lt;foo ${condition : '' ? 'x="&hellip;"'}&gt;
+    &hellip;
+&lt;/foo&gt;
+</pre>
+                            </td>
+
+                            <td>
+<pre>
+&lt;jspx:element name="foo"&gt;
+    &lt;c:if test="${!(condition)}"&gt;
+        &lt;jspx:attribute name="x"/&gt;&hellip;&lt;/jspx:attribute&gt;
+    &lt;c:if&gt;&lt;jspx:body&gt;&hellip;&lt;jspx:body&gt;
+&lt;/jspx:element&gt;
+</pre>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td>
+<pre>
+&lt;foo ${condition : 'x="&hellip;"' ? 'y="&hellip;"'}&gt;
+    &hellip;
+&lt;/foo&gt;
+</pre>
+                            </td>
+
+                            <td>
+<pre>
+&lt;jspx:element name="foo"&gt;
+    &lt;c:choose&gt;
+        &lt;c:when test="${condition}"&gt;
+            &lt;jspx:attribute name="x"/&gt;&hellip;&lt;/jspx:attribute&gt;
+        &lt;c:when&gt;
+        &lt;c:otherwise&gt;
+            &lt;jspx:attribute name="y"/&gt;&hellip;&lt;/jspx:attribute&gt;
+        &lt;/c:otherwise&gt;        
+    &lt;/c:choose&gt;
+    &lt;jspx:body&gt;&hellip;&lt;jspx:body&gt;
+&lt;/jspx:element&gt;
+</pre>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </li>
+
+            <li>Jsp2X rewrites the file extension in references to an included file as long as the
+            included file is also listed as an input file. This is why you should convert all JSP
+            files in a single invocation of Jsp2X. If you don't Jsp2X will not be able to rewrite
+            references to converted files.</li>
+
+            <li>Jsp2X converts DOCTYPE declarations to &lt;jsp:output&gt; elements.</li>
+        </ul>
+
+        <p>You might notice the use of <code>&lt;jspx:element&gt;</code> and
+        <code>&lt;jspx:attribute&gt;</code> tags where you'd expect JSP's built-in
+        <code>&lt;jsp:element&gt;</code> and <code>&lt;jsp:attribute&gt;</code> tags. The reason is
+        that the built-in mechanism doesn't work for conditional attributes (something I consider a
+        blatant oversight in the standard). For example,</p>
+
+        <p><code>&lt;jsp:element &hellip;&gt;&lt;c:if &hellip;&gt;&lt;jsp:attribute
+        &hellip;&gt;&hellip;&lt;/jsp:attribute&gt;&lt;/c:if&gt;&lt;/jsp:element&gt;</code></p>
+
+        <p>doesn't work because the attribute element applies to the <code>&lt;c:if&gt;</code> tag,
+        not the <code>&lt;jsp:element&gt;</code> tag. It is in accordance with the standard but the
+        standard should have been written to accommodate this very common use case. Jsp2X creates
+        several tag files with custom tags that have similar functionality to
+        <code>&lt;jsp:element&gt;</code> , <code>&lt;jsp:attribute&gt;</code> and
+        <code>&lt;jsp:body&gt;</code> but work for conditional attributes:</p>
+
+        <p><code>&lt;jspx:element name="foo"&gt;&lt;c:if &hellip;&gt;&lt;jspx:attribute
+        name="bar"&gt;&hellip;&lt;/jsp:attribute&gt;&lt;/c:if&gt;&lt;/jsp:element&gt;</code> .</p>
+
+        <p>Another difference is that <code>&lt;jspx:element&gt;</code> distinguishes between empty
+        tags and tags with empty bodies. For example, a JSP page with</p>
+
+        <p><code>&lt;jspx:element name="foo"&gt;&lt;jsp:body/&gt;&lt;/jsp:element&gt;</code></p>
+
+        <p>will emit <code>&lt;foo&gt;&lt;/foo&gt;</code> and</p>
+
+        <p><code>&lt;jspx:element name="foo"&gt;&lt;/jsp:element&gt;</code> or
+        <code>&lt;jspx:element name="foo"/&gt;</code></p>
+
+        <p>will emit <code>&lt;foo/&gt;</code> . The <code>jsp:</code> variant would have emitted
+        <code>&lt;foo/&gt;</code> in either case. This is XML-compliant but violates HTML (not
+        XHTML) in which <code>&lt;div&gt;&lt;/div&gt;</code> and <code>&lt;div/&gt;</code> are
+        treated differently. The latter is actually disallowed and the its effect differs from
+        browser to browser. FF treats it like an opening <code>&lt;div&gt;</code> and implicitly
+        closes it at the end of the parent tag, e.g.</p>
+
+        <p><code>&lt;td&gt;&lt;div class="a"/&gt;&lt;div&gt;foo&lt;/div&gt;&lt;td&gt;</code> is
+        treated like</p>
+
+        <p><code>&lt;td&gt;&lt;div
+        class="a"&gt;&lt;div&gt;foo&lt;/div&gt;&lt;/div&gt;&lt;/td&gt;</code> .</p>
+
+        <p>IE7 simply ignores everything after the <code>&lt;div/&gt;</code> .</p>
+
+        <p>The use of Jsp2X's custom <code>&lt;jspx:element&gt;</code> instead of the built-in
+        <code>&lt;jsp:element&gt;</code> assists in creating output that is more likely to preserve
+        the JSP page author's intent. It also enables the use of HTML (albeit a somewhat stricter
+        dialect of it) as opposed restricting the template text to pure XHTML.</p>
+
+        <h2 id="Requirements">Requirements</h2>
+
+        <ul>
+            <li>mandatory: JDK 5 or higher</li>
+
+            <li>recommended: JSP files named with standardized extensions ( <code>.tag</code> ,
+            <code>.jsp</code> and <code>.jspf</code> .</li>
+
+            <li>recommended: Access to the complete set of all JSP files that comprise the web
+            application (i.e. everything underneath the WEB-INF directory).</li>
+
+            <li>recommended: The include directives in every input JSP page should use
+            context-relative URIs to refer to other JSP files (as in
+            <code>/WEB-INF/jsp/taglibs.jspf</code> ).</li>
+        </ul>
+
+        <h2 id="Usage"><a name="Usage"></a>Usage</h2>
+
+        <p>Jsp2X is distributed as an executable JAR file. It is invoked as follows:</p>
+<pre>
+# java -jar &lt;path to distribution jar&gt; &hellip;
+</pre>
+
+        <p>Invoking it with <code>--help</code> shows the command line options.</p>
+<pre>
+# java -jar jsp2x-VERSION-bin.jar --help
+Usage:
+Jsp2X [--help] [-c|--clobber] [(-o|--output) &lt;output&gt;] file1 file2 &hellip; fileN
+
+Converts JSP pages to JSP documents (well-formed XML files with JSP tags).
+
+
+[--help]
+Prints <span class="code-keyword">this</span> help message.
+
+[-c|--clobber]
+Overwrite output files even <span class="code-keyword">if</span> they already exist.
+
+[(-o|--output) &lt;output&gt;]
+The path to the output folder. By <span class=
+"code-keyword">default</span> output files and logs are
+created in the same directory as the input file.
+
+file1 file2 &hellip; fileN
+One or more paths to JSP files. Should not be absolute paths.
+</pre>
+
+        <p>Unless you specify <code>--clobber</code> , Jsp2X will never overwrite existing files.
+        For every input file it will create a converted output file and possibly a log file in the
+        same directory of the input file unless the --output switch is specified. With
+        <code>--output &lt;path&gt;</code> , output files are written to a directory structure
+        underneath the directory specified by &lt;path&gt;. The directory structure will mimic the
+        one of the input files and non-existing directories will be created on the fly as required.
+        The base name of the output file will be derived from the input file using the following
+        mapping between standard JSP page extensions and standard JSP document extensions:</p>
+
+        <table>
+            <tbody>
+                <tr>
+                    <th>Input extension</th>
+
+                    <th>Output extension</th>
+                </tr>
+
+                <tr>
+                    <td>jsp</td>
+
+                    <td>jspx</td>
+                </tr>
+
+                <tr>
+                    <td>tag</td>
+
+                    <td>tagx</td>
+                </tr>
+
+                <tr>
+                    <td>jspf</td>
+
+                    <td>jspx</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>If the input file's extension doesn't match any of the ones listed in above table, Jsp2X
+        will generate the output file name simply by appending <code>.xml</code> to the input file
+        name.</p>
+
+        <p>Input file paths should always be relative paths. They must be relative paths if
+        --output is specified. If they are relative paths they may start with <code>'./'</code> but
+        they don't need to, e.g. <code>./foo/bar.jsp</code> is treated equivalent to
+        <code>foo/bar.jsp</code> . JSP pages may include other JSP fragments. Jsp2X can handle this
+        as long as the value of every include directive's <code>uri</code> attribute should point
+        to the included file when prepending the <code>uri</code> value with the current working
+        directory. In other words, you should</p>
+
+        <ul>
+            <li>run Jsp2X from with the <code>webapp</code> directory of your source tree (usually
+            <code>src/main/webapp</code> ) and</li>
+
+            <li>your JSP pages use context-relative URIs to refer to the included fragment, e.g.
+            <code>/WEB-INF/jsp/taglibs.jspf</code> .</li>
+        </ul>
+
+        <p>In all other cases Jsp2X will emit a warning and the conversion result might be
+        incomplete.</p>
+
+        <p>A typical conversion session might look like this:</p>
+<pre>
+# cd src/main/webapp
+# find -name "*.tag" -or -name "*.jsp" -or -name | 
+  xargs java -jar jsp2x-VERSION-bin.jar --clobber
+# cd ../../..
+
+</pre>
+
+        <p>Jsp2X will print the total number of input files and the number of successfully
+        converted input files. You will find as many log files as there are input files for which
+        the conversion was unsuccessful. Read the log files and tweak the input pages or come
+        running to me if you think you found a bug.</p>
+
+        <p>When converting the JSP pages in Provider Portal, I used a slightly more elaborate
+        approach that yielded better diffs in SVN. The key to that approach is that I first renamed
+        the JSP pages to their JSP document counterparts in one commit then replaced the content of
+        the renamed file with its converted form in a second commit. The diff of the second commit
+        lists all modifications made by Jsp2X allowing you to later go back and see what exactly it
+        did. Here's a transcript of my conversion session (before you copy-and-paste it make sure
+        you understand what's going on with all those find commands):</p>
+
+        <ol>
+            <li>
+                Convert all JSP files into a separate temporary directory: 
+<pre>
+# cd src/main/webapp
+# find -name "*.tag" -or -name "*.jsp" -or -name | 
+  xargs java -jar jsp2x-VERSION-bin.jar --clobber --output temp
+
+</pre>
+            </li>
+
+            <li>
+                Use find to generate a script that renames all JSP files: 
+<pre>
+# find \( -name  -or -name "*.jspf" \) -and -printf | 
+  sed -r "s/jspf?\$/jspx/" | bash
+# find -name "*.tag" -and -printf "svn rename %p %p\\n" | sed -r  | bash
+# svn commit -m "&hellip;"
+</pre>
+            </li>
+
+            <li>
+                Use find to generate another script that copies the converted files from the
+                tempotary directory to the real one: 
+<pre>
+# cd temp/WEB-INF
+# find \( -name "*.tagx" -or -name "*.jspx" \) -and -printf  | sed s/\\/\\.\\//\\// | bash
+# cd ../..
+# rm -r temp
+# svn commit -m "&hellip;"
+</pre>
+            </li>
+        </ol>
+
+        <h2>How it works</h2>
+
+        <p>Jsp2X is split into four main parts: the parser, the transformer, the dumper and the
+        main class with some glue code for command line and file management. The parser was hardest
+        to get right because unlike a true JSP page parser it can't just scan the template text for
+        JSP constructs. The transformer needs a complete tree structure of the input including the
+        tags in the template text. So the parser has to scan for markup in the template
+        text<b>and</b> JSP constructs at the same time. The input is not just simple markup with
+        elements, attributes and some text. JSP constructs can literally occur anywhere in the
+        document. The parser needs to accept input like this:</p>
+
+        <p><code>&lt;a href="&lt;c:url value="foo"/&gt;" ${isBold ? 'class="bold"' :
+        ''}&gt;</code></p>
+
+        <p>This is an <code>&lt;a&gt;</code> element with an <code>href</code> attribute whose
+        value is a <code>&lt;c:url&gt;</code> tag which has more attributes. Next to the
+        <code>href</code> attribute there is an EL expression with a conditional class attribute. I
+        refer to these constructs as being <em>recursive</em> because tags are allowed within tags
+        (this is different to elements occurring in the <b>body</b> of other elements). Also note
+        the nesting of the quotation marks. As you can see, parsing this is not trivial. Luckily, I
+        had a very powerful tool at hand: ANTLR. Given the grammar of an input language ANTLR
+        generates the Java source code of a class that can parse the input language and turn it
+        into an in-memory tree representing the input. So as long as you can come up with a grammar
+        for the desired input, ANTLR generates a program that parses the input for you. ANTLR can
+        generate source code for Java, C#, C and other languages. It supports complex LL(*)
+        grammars (any context-free language if you know who Chomsky is) in which the decision about
+        which grammar rule to apply can not be made by just looking a constant number of tokens
+        ahead (it uses backtracking in conjunction with memoization to alleviate the exponential
+        cost of backtracking). I am an ANTLR newbie so I expect my JSP grammar to have
+        deficiencies.</p>
+
+        <p>The transformer is a simple recursive tree walker that can change, delete and add nodes
+        during the walk. Most of the work is done in a first pass. It also detects and converts the
+        afore-mentioned recursion in attributes and tags. The second pass combines consecutive
+        PCDATA (i.e. text) nodes and escapes XML entities. The third pass attempts to detect
+        insignificant whitespace. For example, it converts</p>
+<pre>
+&lt;td&gt;
+    Foo
+&lt;/td&gt;
+</pre>
+
+        <p>to</p>
+<pre>
+&lt;td&gt;
+    &lt;jsp:text&gt;Foo&lt;jsp:text&gt;
+&lt;td&gt;
+</pre>
+
+        <p>The difference between the two fragments is that the first one would cause the JSP
+        engine to emit HTML output that includes the whitespace:</p>
+<pre>
+&lt;td&gt;
+    Foo
+&lt;/td&gt;
+</pre>
+
+        <p>The second fragment on the other hand would emit</p>
+<pre>
+&lt;td&gt;Foo&lt;/td&gt;
+</pre>
+
+        <p>This is because the whitespace around "Foo" became whitespace-only text <b>between</b>
+        tags and can be safely eliminated by the JSP engine. The text child of the
+        <code>&lt;td&gt;</code> element in the first fragment contains both whitespace and
+        non-whitespace. The JSP standard says that in JSP documents only text that exclusively
+        consists of whitespace can be eliminated.</p>
+
+        <p>The dumper is a very simple XML serializer. After the transformer did its work, the tree
+        is basically in XML form and serializing it is a trivial task. ANTLR supports tree parsing
+        to some extent so I used that mechanism for the dumper.</p>
+
+        <p>There's not much to say about the main class, except maybe that it uses a neat little
+        command line parser called JSAP.</p>
+        <a name="the_end"></a>
+    </body>
+</html>
+

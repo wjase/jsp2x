@@ -1,0 +1,10 @@
+<%@ taglib prefix="spring" uri="http://www.springframework.org/tags" %>
+<%@ taglib prefix="c" uri="http://java.sun.com/jstl/core_rt" %>
+<%@ taglib prefix="fmt" uri="http://java.sun.com/jstl/fmt_rt" %>
+<%@ taglib prefix="fn" uri="http://java.sun.com/jsp/jstl/functions" %>
+<%@ taglib prefix="util" uri="/WEB-INF/jsp/utility.tld" %>
+<%@ taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+<%@ taglib prefix="pager" tagdir="/WEB-INF/tags/pager"%>
+<%@ taglib prefix="decorated" tagdir="/WEB-INF/tags/decorated"%>
+<%@ taglib prefix="scope" tagdir="/WEB-INF/tags/scope"%>
+<%@ taglib prefix="skin" tagdir="/WEB-INF/tags/skin"%>

@@ -1,0 +1,88 @@
+/*
+ * Copyright (c) 2008, Hannes Schmidt. All rights reserved.
+ * 
+ * This file is part of Jsp2X.
+ * 
+ * Jsp2X is free software: you can redistribute it and/or modify it under the terms of the GNU
+ * Lesser Public License as published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ * 
+ * Jsp2X is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+ * the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser
+ * Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser Public License along with Jsp2X. If not, see
+ * <http://www.gnu.org/licenses/>.
+ * 
+ * $Author$ 
+ * $Date$ 
+ * $Rev$
+ */
+
+tree grammar Xml;
+
+options {
+	tokenVocab = Jsp;
+	ASTLabelType = Tree;
+	rewrite = true;
+}
+
+@header {
+	package com.cybernostics.forks.jsp2x;
+}
+
+@members {
+	private java.io.PrintStream out;
+	
+	public void setOut( java.io.PrintStream out ) {
+		this.out = out;
+	}
+	
+	private void out( String text ) {
+		out.print( text );
+	} 
+}
+
+document  
+	: ( 
+		child
+		| t=PROCESSING_INSTRUCTION { out( "<?" + $t.text + "?>" ); }
+		| t=DOCTYPE_DEFINITION { out( $t.text ); }
+	)*
+	;
+
+text 
+	: t=PCDATA { out( $t.text ); }
+	| t=CDATA { out( "<![CDATA[" + $t.text + "]]>" ); }
+	;
+
+element
+    : ^( ELEMENT 
+            GENERIC_ID { out( "<" + $GENERIC_ID.text ); }
+            ^( ATTRIBUTES ( { out( " " ); } attribute )* )
+            ( 
+            	{ out( ">" ); } child+ { out( "</" + $GENERIC_ID.text + ">" ); }
+            	| { out( "/>" ); }
+           	)
+        )
+    ;
+
+child
+	: element
+	| text
+	| comment
+	;
+
+comment
+	: t=COMMENT { out( "<!--" + $t.text + "-->" ); }
+	;
+
+attribute
+	: ^( 
+		ATTRIBUTE 
+		t=GENERIC_ID 
+		{ out( $t.text + "=\"" ); } 
+		text* 
+		{ out( "\"" ); } 
+	)
+	;
